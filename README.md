@@ -8,7 +8,7 @@ Claude Code project 是一段長期的 coordinator 對話：你跟 coordinator �
 
 預設情況下，Claude 聽到「我想做一個 XX」之後，常常直接開始寫 code，甚至自己生出一整套 architecture。使用者根本還沒講清楚需求，Claude 就已經自己猜完所有答案動手做了。換成 project 之後，問題變得更明顯：
 
-- **thread 看不到 project 對話。** 對話裡討論過、但沒寫進 project instructions、project memory、repo 或 brief 的東西，thread 一律不知道，只能用猜的。
+- **thread 看不到 project 對話。** 對話裡討論過、但沒寫進 project instructions、project memory、Library 或 brief 的東西，thread 一律不知道，只能用猜的。
 - **需求和細節混在同一個 thread。** 需求還沒定案，檔案樹和函式簽名就先長出來，反過來綁死技術選擇。
 - **implementation thread 照字面執行。** 規格沒寫到的地方，它會自己編一個看起來合理的答案填進去，而且不會告訴你。
 - **每個 thread 都是完整的 session。** 開錯 thread 或一次開太多，額度消耗得很快。
@@ -21,8 +21,8 @@ Claude Code project 是一段長期的 coordinator 對話：你跟 coordinator �
 
 | Thread | 做什麼 | 不做什麼 | 產出 |
 |---|---|---|---|
-| planning | 釐清需求、決定技術選擇、拆里程碑 | 檔案結構、函式簽名、code | `docs/roadmap.md`，決策記進 memory |
-| design | 把里程碑或單一功能轉成可實作規格 | 推翻 planning 的決定、寫實作 | `docs/design_M{n}.md` / `docs/feature_{描述}.md` |
+| planning | 釐清需求、決定技術選擇、拆里程碑 | 檔案結構、函式簽名、code | Library 裡的 `roadmap.md`，決策記進 memory |
+| design | 把里程碑或單一功能轉成可實作規格 | 推翻 planning 的決定、寫實作 | Library 裡的 `design_M{n}.md` / `feature_{描述}.md` |
 | implementation | 依 design 寫 code、跑驗證、開 PR | 做 design 範圍以外的事 | PR + 驗證結果 |
 
 planning 和 design 一定要分開。design thread 是用全新的 context 讀 roadmap，它讀不懂的地方就是 roadmap 沒寫清楚的地方，等於順便驗收了 planning 的產出。
@@ -44,7 +44,7 @@ planning 和 design 一定要分開。design thread 是用全新的 context 讀 
 ### 跨 thread 傳遞
 
 - **讓 thread 真的載入這個 skill。** skill 要被叫出來才會生效，所以第一次啟用時，coordinator 會在 project instructions 加一行「依 planning-mode skill 運作」，每個 brief 開頭也會要求 thread 先載入 skill。project instructions 會送給 coordinator 和每個新 thread。
-- **交接前先 merge。** thread 是從預設分支開 branch 的，所以 roadmap 和 design 文件都要先由使用者 review 並 merge（`👤` 使用者動作），下游 thread 才讀得到。
+- **文件放 Library，不上 GitHub。** roadmap、design、feature 文件一律交到 project 的 Library，repo 裡只放 code；build 和 test 指令記進 project memory，不寫 `CLAUDE.md`。文件交出來後由使用者在 Library 看過並確認（`👤` 使用者動作），才開下游 thread。thread 產出的檔案不保證之後的 thread 讀得到，找不到時 thread 會停下來，請你從 Library 下載再用 **Add** 上傳回去。
 - **`👤` 使用者動作。** thread 自己做不到的事（開帳號、產生金鑰、改 cloud environment 的網域、network secret 和 setup script）會集中列成清單，正文中也就地標記，讓 thread 做到那一步就停下來等。
 - **驗證要有實際跑過的結果。** coordinator 只看得到 thread 的回報，所以會對照 design 的驗證步驟，確認回報裡有實際跑過的輸出，沒有就要求 thread 補上。
 
@@ -52,16 +52,16 @@ planning 和 design 一定要分開。design thread 是用全新的 context 讀 
 
 | 文件 | 什麼時候寫 | 內容 |
 |---|---|---|
-| `docs/roadmap.md` | 多階段的大專案 | 專案概述、整體架構與技術選擇（含因硬限制而排除的方案和一行理由）、里程碑 `M1, M2…` |
-| `docs/design_M{n}.md` | 落實一個或幾個里程碑（例如 `design_M2-M3.md`） | 範圍、`👤` 清單、環境、檔案結構、各檔案職責與函式簽名、任務切分、驗證 |
-| `docs/feature_{描述}.md` | 單一功能切片 | 同上，另外註明對應哪個 M，並列出要修改的既有檔案 |
-| `docs/design.md` | 一兩個功能就做完、不需要 roadmap 的小專案 | 同 design |
+| `roadmap.md` | 多階段的大專案 | 專案概述、整體架構與技術選擇（含因硬限制而排除的方案和一行理由）、里程碑 `M1, M2…` |
+| `design_M{n}.md` | 落實一個或幾個里程碑（例如 `design_M2-M3.md`） | 範圍、`👤` 清單、環境、檔案結構、各檔案職責與函式簽名、任務切分、驗證 |
+| `feature_{描述}.md` | 單一功能切片 | 同上，另外註明對應哪個 M，並列出要修改的既有檔案 |
+| `design.md` | 一兩個功能就做完、不需要 roadmap 的小專案 | 同 design |
 
-文件之後要修改，就透過 PR 直接改原檔，版本紀錄交給 git，不另外加版號。
+這些文件都放在 project 的 Library，不 commit 進 repo。之後要修改，就直接更新 Library 裡的同名檔案，不另外加版號。
 
 ## 使用方式
 
-1. 確認你可以使用 [Claude Code Projects](https://code.claude.com/docs/en/claude-projects)（目前是 Pro、Max、Ultra 方案的 public beta），而且 project 要用的 repo 已經安裝 Claude GitHub App。
+1. 確認你可以使用 [Claude Code Projects](https://code.claude.com/docs/en/claude-projects)（目前是 Pro、Max、Ultra 方案的 public beta）。planning 和 design 不需要 repo；要開始寫 code 時，再建 repo、安裝 Claude GitHub App 並加進 project。
 2. 把 `planning-mode/SKILL.md` 上傳成你 **claude.ai 帳號**的 skill 並啟用。project 的 cloud thread 只會載入帳號啟用的 skill，放在 repo 的 `.claude/skills/` 底下不會被載入（見 [Skills in Cowork and cloud sessions](https://code.claude.com/docs/en/skills#skills-in-cowork-and-cloud-sessions)）。
 3. 在 project 對話裡說「我想做一個…」或「幫這個專案加一個…功能」，skill 就會啟動。
 

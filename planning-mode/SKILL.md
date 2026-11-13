@@ -16,14 +16,14 @@ description: "Use only inside a Claude Code project (a coordinator conversation 
 - 使用者帳號啟用的 skill 和 connectors
 - coordinator 給它的 brief
 
-所以任何要跨 thread 傳遞的東西，都必須寫進 project instructions、project memory、repo 或 brief，不能只留在對話裡。例外：在使用者電腦上跑的 thread（Remote Control）只拿得到 project instructions，不會載入 project memory，它要用到的決策必須寫進 brief。
+所以任何要跨 thread 傳遞的東西，都必須寫進 project instructions、project memory、Library 或 brief，不能只留在對話裡。例外：在使用者電腦上跑的 thread（Remote Control）只拿得到 project instructions，不會載入 project memory，它要用到的決策和文件內容必須寫進 brief。
 
 工作分成三種 thread，**一個 thread 只做一種**：
 
 | Thread | 做什麼 | 不做什麼 | 產出 |
 |---|---|---|---|
-| planning | 釐清需求、決定技術選擇、拆里程碑 | 檔案結構、函式簽名、code | `docs/roadmap.md`，決策記進 memory |
-| design | 把里程碑或單一功能轉成可實作規格 | 推翻 planning 的決定、寫實作 | `docs/design_M{n}.md` / `docs/feature_{描述}.md` |
+| planning | 釐清需求、決定技術選擇、拆里程碑 | 檔案結構、函式簽名、code | Library 裡的 `roadmap.md`，決策記進 memory |
+| design | 把里程碑或單一功能轉成可實作規格 | 推翻 planning 的決定、寫實作 | Library 裡的 `design_M{n}.md` / `feature_{描述}.md` |
 | implementation | 依 design 寫 code、跑驗證、開 PR | 做 design 範圍以外的事 | PR + 驗證結果 |
 
 planning 和 design 一定要分開。混在一起時，需求還沒定案，細節就先長出來了（先畫了檔案樹，反過來綁死技術選擇）。分開還有一個好處：design thread 是用全新的 context 讀 roadmap，它讀不懂的地方就是 roadmap 沒寫清楚的地方，等於順便驗收了 planning 的產出。
@@ -57,7 +57,7 @@ planning 和 design 一定要分開。混在一起時，需求還沒定案，細
 
 **第一次啟用時**，先檢查 project instructions 裡有沒有下面這一行。沒有就加上，並告訴使用者加了什麼：
 
-> 本專案依 planning-mode skill 運作。coordinator 和每個 thread 開始工作前，先載入 planning-mode skill，照自己角色的那一節做。
+> 本專案依 planning-mode skill 運作。coordinator 和每個 thread 開始工作前，先載入 planning-mode skill，照自己角色的那一節做。roadmap、design、feature 文件一律放在 project 的 Library，不要把這些文件或 `CLAUDE.md` commit 進 repo。
 
 這一行是必要的。project instructions 會送給 coordinator 和每一個新 thread，但 skill 要被叫出來才會生效：thread 收到的 brief 不一定會觸發它，coordinator 的對話也只靠最近的訊息和 memory 運作，早先載入的 skill 內容可能已經不在 context 裡。
 
@@ -68,15 +68,20 @@ planning 和 design 一定要分開。混在一起時，需求還沒定案，細
 - **要把已經做好的決定轉成規格** → 開 design thread。
 - **要產出 code** → 開 implementation thread。如果還沒有 design 文件，先開 design thread，不要直接開工。
 
-整體流程：planning →（`👤` merge roadmap PR）→（🛑 探路 thread，可以平行跑）→ 每個里程碑各開一個 design →（`👤` merge design PR）→ 照 design 的任務切分開 implementation。如果是一兩個功能就做完的小專案，planning 只要把決策記進 memory，不必寫 roadmap，直接進 design。
+整體流程：planning →（`👤` 確認 roadmap）→（🛑 探路 thread，可以平行跑）→ 每個里程碑各開一個 design →（`👤` 確認 design）→ 照 design 的任務切分開 implementation。如果是一兩個功能就做完的小專案，planning 只要把決策記進 memory，不必寫 roadmap，直接進 design。planning 和 design 不需要 repo；建 repo、安裝 Claude GitHub App、把 repo 加進 project 都屬於 `👤` 使用者動作，最晚在開第一個 implementation thread 之前完成。
 
-**交接前先 merge。** thread 是從預設分支開 branch 的，所以下游 thread 要讀的 repo 文件（design 要讀的 `docs/roadmap.md`、implementation 要讀的 design 文件）必須已經 merge 進預設分支，不然它讀不到。planning 和 design thread 把文件寫進 repo 時要開 PR。PR 的 review 和 merge 是 `👤` 使用者動作：PR 開好之後，告訴使用者去 review 並 merge，merge 之前不開下游 thread。
+**文件放 Library，交接前先確認。**
+- roadmap、design、feature 文件一律交到 project 的 Library，不 commit 進 repo。只有 code 進 repo。
+- 文件交出來之後，告訴使用者去 Library 看過並確認（`👤`）。確認之前不開下游 thread。
+- brief 裡寫明要讀的檔名，thread 到 `/mnt/project-files` 底下找。
+- thread 產出的檔案會出現在 Library，但不保證之後的 thread 在 `/mnt/project-files` 讀得到。找不到時，thread 要停下來，請使用者把該檔從 Library 下載、再用 **Add** 上傳回去（`👤`），不要自己重寫一份。
+- 文件修改後，如果使用者之前上傳過它的複本，提醒使用者重新上傳並選 **Replace**，不然之後的 thread 會讀到舊版。
 
 開 thread 時，brief 要寫清楚以下幾點：
 - 開頭寫：「先載入 planning-mode skill，照『{角色} thread』那一節做。」
 - 這個 thread 的角色（planning / design / implementation），以及範圍（對應哪個 M 或哪個功能）
-- 要讀哪份文件（給 repo 裡的路徑）
-- 要交付什麼、放在哪裡（檔案路徑、要不要開 PR）
+- 要讀哪份文件（給 Library 裡的檔名）
+- 要交付什麼、放在哪裡（文件交到 Library 的檔名；implementation 要不要開 PR）
 - 哪些範圍不准碰
 - 遇到 A 類問題、`👤` 使用者動作，或需要推翻上游的決定時，停下來問，不要自己想辦法解決
 
@@ -86,7 +91,7 @@ coordinator 只看得到 thread 回報的內容，看不到它中間的每一步
 
 ---
 
-## Planning thread → `docs/roadmap.md`
+## Planning thread → Library 裡的 `roadmap.md`
 
 讀者是使用者本人，以及之後的 design 和 planning thread。
 
@@ -94,23 +99,23 @@ coordinator 只看得到 thread 回報的內容，看不到它中間的每一步
 2. **整體架構與技術選擇**：語言、框架、資料庫、部署方式，只寫到「用什麼」的層級。工具鏈預設 Python 用 `uv`，Node 用 `pnpm`（沒有特殊理由不用 npm）。因為**硬限制**（免費方案額度、rate limit、平台政策）而排除的方案，要寫一行理由，例如：「不用 Vercel 內建 cron，因為 Hobby 方案一天只能跑一次」。這是為了避免之後的 thread 又把它翻出來重提。其他理由不寫。
 3. **里程碑**：`M1, M2…`。每個里程碑寫清楚要交付什麼、依賴哪些前面的 M，以及已知的風險和 `🛑`。完整程度以「拿這個 M 去開 design thread 時不用先補脈絡」為準，通常三到五句。
 
-roadmap 不寫檔案結構，也不寫函式簽名。拍板的決策和排除理由要同步記進 project memory。如果專案還沒有 repo，建 repo、安裝 Claude GitHub App、把 repo 加進 project 都屬於 `👤` 使用者動作。在那之前，roadmap 先交到 Library，等 repo 建好再 commit 進 `docs/`。之後要修改，就透過 PR 直接改原檔，版本紀錄交給 git，不另外加版號。
+roadmap 不寫檔案結構，也不寫函式簽名。拍板的決策和排除理由要同步記進 project memory。之後要修改，就直接更新 Library 裡同名的 `roadmap.md`，不另外加版號。
 
 ---
 
-## Design thread → `docs/design_M{n}.md` / `docs/feature_{描述}.md`
+## Design thread → Library 裡的 `design_M{n}.md` / `feature_{描述}.md`
 
 讀者是 implementation thread。它會照字面執行，遇到沒寫清楚的地方，會自己編一個看起來合理的答案填進去，而且不會告訴你。凡是文件沒寫到的，它都會用猜的。
 
-**檔名**：里程碑用 `design_M1.md`，一次涵蓋好幾個就用 `design_M2-M3.md`。單一功能切片用 `feature_{描述}.md`（例如 `feature_login.md`），並註明它對應哪個 M，或是「不屬於任何里程碑的臨時補丁」。沒有 roadmap 的小專案就用 `design.md`。
+**檔名**：里程碑用 `design_M1.md`，一次涵蓋好幾個就用 `design_M2-M3.md`。單一功能切片用 `feature_{描述}.md`（例如 `feature_login.md`），並註明它對應哪個 M，或是「不屬於任何里程碑的臨時補丁」。沒有 roadmap 的小專案就用 `design.md`。所有 design 文件都交到 Library，修改時更新同名檔案。
 
 **內容（依序）**：
 1. **範圍**：對應哪些 M 或哪個功能，一行帶過。
 2. **`👤` 使用者動作清單**：thread 自己做不到、需要使用者親手處理的事，例如開帳號、到第三方 dashboard 操作、產生金鑰，或是修改 thread 用的 cloud environment：加允許的網域、加 network secret、在 setup script 裡裝工具。cloud environment 要到該 environment 的 **Edit cloud environment** 對話框改；Project settings > Environment 只能選 repo 和要用哪個 environment，改不到這些。正文中對應的位置也要就地標 `👤`，讓 thread 做到那一步時知道要停下來等。
-3. **環境**：`design_M1.md`（或沒有 roadmap 的 `design.md`）寫完整的基礎環境：工具鏈、依賴、初始化指令。之後的 design 和 feature 只列這個階段新增的依賴和指令。build 和 test 指令寫進 repo 根目錄的 `CLAUDE.md`，因為每個 thread 啟動時都會讀。
+3. **環境**：`design_M1.md`（或沒有 roadmap 的 `design.md`）寫完整的基礎環境：工具鏈、依賴、初始化指令。之後的 design 和 feature 只列這個階段新增的依賴和指令。build 和 test 指令記進 project memory，並在 `MEMORY.md` 索引裡留一行寫出指令本身，因為每個 thread 啟動時都會讀索引。不要寫進 repo 的 `CLAUDE.md`。
 4. **檔案結構**：會動到的目錄和檔案樹。feature 另外列出要修改的既有檔案，以及各自要改什麼（不用貼舊 code，thread 會自己去讀）。
 5. **各檔案職責**：列出關鍵函式簽名和用途，不寫 function body。
-6. **任務切分**：把工作切成一個 implementation thread 做得完的大小，寫清楚依賴順序、哪些可以平行、每個任務負責哪些檔案、merge 的順序。兩個平行的任務不能改到同一個檔案，否則 PR 會衝突。每個任務附一個 checkpoint。
+6. **任務切分**：把工作切成一個 implementation thread 做得完的大小，寫清楚依賴順序、哪些可以平行、每個任務負責哪些檔案、merge 的順序。兩個平行的任務不能改到同一個檔案，否則 PR 會衝突。有依賴的任務，要等前一個任務的 PR merge 進預設分支（`👤`）才開下一個 thread，因為 thread 是從預設分支開 branch 的。每個任務附一個 checkpoint。
 7. **驗證**：每一條交付線都給一個具體、可以執行的驗收步驟（打哪個端點、期望回什麼、失敗時長什麼樣子）。checkpoint 必須在 cloud sandbox 當下就能跑：還沒部署，就不能要求到部署環境驗證。做不到的話，就降級成在本地能跑的版本，並把「部署後才能做的檢查」明確移到對應的里程碑。
 
 如果 design thread 發現 planning 的某個決定行不通，就停下來回報，不要自己改架構。
