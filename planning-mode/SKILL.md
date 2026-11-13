@@ -1,123 +1,122 @@
 ---
-name: planning-mode
-description: Use when the user announces they are starting a new project, app, feature, or system to build (e.g. "我想做一個...", "幫我規劃...", "I want to build a..."), or wants to add a feature to an existing project (e.g. "幫這個專案加一個...功能"). Stay active for the entire project discussion until the user says "結束規劃" / "離開規劃模式" or clearly moves to an unrelated topic.
+name: "planning-mode"
+description: "Use only inside a Claude Code project (a coordinator conversation that starts threads). Use when the user announces they are starting a new project, app, feature, or system to build (e.g. \"我想做一個...\", \"幫我規劃...\", \"I want to build a...\"), or wants to add a feature to an existing project (e.g. \"幫這個專案加一個...功能\"). Also use at the start of any thread whose brief or project instructions say to follow planning-mode, or that is named a planning, design, implementation or 探路 thread. Routes the work into separate planning, design and implementation threads. Do not use in ordinary chats or sessions outside a Claude Code project. Stay active for the entire project discussion until the user says \"結束規劃\" / \"離開規劃模式\" or clearly moves to an unrelated topic."
 ---
 
 # Planning Mode
 
-規劃在 Claude.ai 做,實作在 Claude Code 做。你的產出是「可以帶走的規劃文件或 prompt」,不是完成品——在這裡寫完整 code 或建完整 architecture 等於浪費 token,因為使用者還得搬到 Claude Code 重跑一次。
+本 skill 只在 Claude Code project 裡使用。不在 project 裡（一般對話、單獨的 Claude Code session）就不套用，正常回應。
 
-產出的讀者分兩種,寫法不同:
+整個流程都在同一個 Claude Code project 裡完成：使用者跟 coordinator 對話，coordinator 開 thread 做事。每個 thread 都是獨立的 cloud session，有自己的 context 和 branch。**thread 看不到 project 對話。** cloud thread 啟動時拿得到的是：
 
-- **plan / feature(以及 Level 2 的 prompt)讀者是 Claude Code——一個照字面執行、不會反問的 agent。** 它不會質疑含糊的句子;遇到沒講清楚的地方,它會自己編一個看似合理的答案填進去,而且不會告訴你。所以要寫成**祈使句規格**,不是說服文:直接講「做什麼」,不解釋「為什麼」(理由使用者自己會問)。凡是它**無法自行驗證**的東西(真實 API 端點、外部回傳的確切字串、需實測的值),寧可明講「停下來驗證」,也絕不留一個看起來已解決、其實是猜的答案。
-- **roadmap 讀者是人 + 未來的規劃對話**(使用者會把它放進 Claude project 供後續每輪規劃對話讀取,**不會進 Claude Code**)。它是這個專案跨對話的長期記憶:敘述要完整到「新對話讀完不用回頭問專案是什麼」,且**被排除方案的限制型理由要留一行**,防止未來對話把已排除的方案翻出來重提。
+- project instructions
+- project memory：啟動時只讀索引 `MEMORY.md`，其他 memory 檔要用到才打開
+- project 的 repo，以及 repo 根目錄的 `CLAUDE.md`
+- Library 裡使用者上傳的檔案（在 `/mnt/project-files`）
+- 使用者帳號啟用的 skill 和 connectors
+- coordinator 給它的 brief
 
-規則依優先序分四層,衝突時高層級優先:
+所以任何要跨 thread 傳遞的東西，都必須寫進 project instructions、project memory、repo 或 brief，不能只留在對話裡。例外：在使用者電腦上跑的 thread（Remote Control）只拿得到 project instructions，不會載入 project memory，它要用到的決策必須寫進 brief。
 
-**Level 0 退出(覆蓋一切)> Level 1 核心準則 > Level 2 回應分流 > Level 3 產出規格**
+工作分成三種 thread，**一個 thread 只做一種**：
 
----
+| Thread | 做什麼 | 不做什麼 | 產出 |
+|---|---|---|---|
+| planning | 釐清需求、決定技術選擇、拆里程碑 | 檔案結構、函式簽名、code | `docs/roadmap.md`，決策記進 memory |
+| design | 把里程碑或單一功能轉成可實作規格 | 推翻 planning 的決定、寫實作 | `docs/design_M{n}.md` / `docs/feature_{描述}.md` |
+| implementation | 依 design 寫 code、跑驗證、開 PR | 做 design 範圍以外的事 | PR + 驗證結果 |
 
-## 何時啟動
+planning 和 design 一定要分開。混在一起時，需求還沒定案，細節就先長出來了（先畫了檔案樹，反過來綁死技術選擇）。分開還有一個好處：design thread 是用全新的 context 讀 roadmap，它讀不懂的地方就是 roadmap 沒寫清楚的地方，等於順便驗收了 planning 的產出。
 
-使用者明確表示要開始一個 project / app / 功能系統(「我想做一個 XX」「幫我規劃 YY」)。一旦啟動,這個 project 的**所有後續討論都留在模式內**,不需要使用者每次重喊關鍵字——只有 Level 0 的條件成立時才跳出。
-
----
-
-## Level 0 — 退出(最高優先)
-
-- **強制退出**:使用者說「結束規劃」「離開規劃模式」「先不要規劃了」或類似明確語句 → 立刻停用本 skill 全部規則,回正常模式,不再丟選擇題、不再包 prompt、不再判斷範疇。
-- **自然退出**:話題明顯離開此專案(獨立的演算法 / LeetCode 題、與專案無關的通用概念、全新主題)→ 正常回應即可。若不確定是否還在範疇內,**先假設「還在」**並用規劃模式回應,同時順帶確認一句:「這還是你那個 OO project 的一部分嗎?不是的話跟我說『結束規劃』。」
-
----
-
-## Level 1 — 核心準則(模式內永遠適用)
-
-**1. 先問清楚,再動手。** 需求問清楚前,不要開始寫 code 或設計 architecture。任何不確定的地方——包含看似很小的細節,例如命名規則(變數 / 檔案 / API 路由)、檔案與資料夾結構、框架 / 函式庫選擇、資料怎麼存、會用到哪些第三方服務與帳號——都直接在對話裡列出來問(可用選擇題),讓使用者拍板,不要自己假設一個「合理答案」就往下走。使用者明確說過:寧可被多問,也不要我自己猜。
-
-**2. 該問的問到定案;無法驗證的老實標出來。** 這裡要分兩種「待辦」,處理方式相反:
-- **A 類——對話裡問使用者就能拍板的**(命名、要不要登入、用哪個框架、資料怎麼存):產出文件前**問到有答案為止**,不要留給下一輪對話,更不要自己猜一個「合理答案」帶過。
-- **B 類——使用者和你在對話裡都無法確認的外部事實**(真實 API 端點 / 外部回傳的確切字串 / 需實測才知道的值):**絕不編一個「暫定」答案假裝解決**。在文件對應位置就地標成 `🛑 執行前先驗證`,並指示 Claude Code 先跑一支探路腳本拿到真實值、**禁止憑猜測寫死**。每個 🛑 除了寫「量什麼、怎麼量」,還要附**拿到真實值之後的決定規則**(例:「量到 API 上限後,刷新間隔取最保守來源的天花板再留 50% 餘裕」),讓 Claude Code 量完能自己往下走,不用拿著數字回頭問人。誠實的缺口 > 自信的幻覺——一個標好的 🛑 比一個看似完成、其實是猜的欄位安全得多。
-
-**3. 不寫完整實作 code。** 產出停在「檔案職責 + 關鍵函式簽名(function signature)+ 用途」這個顆粒度:不要只停在功能拆解的大方向,也不要一路寫到完整實作。完整的 code 是 Claude Code 的工作。
+規則衝突時的優先順序：**退出 > 核心準則 > 各角色規則**。
 
 ---
 
-## Level 2 — 回應分流(每則訊息先判斷)
+## 退出（最高優先）
 
-判斷依據只有一句:**這個回答的終點是不是程式碼?**
-
-- **不是(解釋、比較、原理)→ 直接在這裡回答。** 「怎麼用」類問題:某個 API 怎麼用、某方法在幹嘛、兩個套件差在哪。使用者要的是理解或決策,正常回答就好,不要硬包成 prompt。
-- **是 → 給一段可直接貼到 Claude Code 的 prompt。** 「怎麼做」類問題:登入功能怎麼做、某 API 怎麼寫、幫我做排序功能。這段 prompt 的顆粒度跟 plan 一樣(職責 + 關鍵函式簽名,不含 function body)——「能跑」是指 Claude Code 拿到就能直接開工,不是這段本身是完成品。
+- 使用者說「結束規劃」「離開規劃模式」「先不要規劃了」或類似的話 → 停用本 skill，回到正常模式。
+- 話題明顯離開這個專案（無關的演算法題、通用概念、全新主題）→ 正常回應即可。如果不確定，先當作「還在專案內」，並順帶確認一句：「這還是你那個 OO project 的一部分嗎？不是的話跟我說『結束規劃』。」
 
 ---
 
-## Level 3 — 產出規格
+## 核心準則（所有角色都適用）
 
-產出分三級,顆粒度由粗到細:**roadmap(整個專案的骨架)→ plan(落實其中一或數個里程碑)→ feature(單一功能切片)**。典型工作流是先做一份 roadmap,再逐個里程碑產 plan,途中視需要穿插 feature(feature 是選配,plan 就是丟進 Claude Code 的最小單位)。三份文件永遠**各自獨立**、不互相回頭改動:roadmap 放進 Claude project 供後續規劃對話讀取;plan / feature 各自帶去 Claude Code 執行。
+1. **先問清楚，再動手。** 只要有不確定的地方，包括命名規則、資料夾結構、框架或函式庫、資料怎麼存、會用到哪些第三方服務和帳號，都要列出來問使用者（可以用選擇題），不要自己假設一個「合理答案」就往下做。使用者明確說過：寧可被多問，也不要我自己猜。在 thread 裡需要問的時候，就停下來等回覆（這個 thread 會出現在 Overview 的 **Waiting on you**），不要先做再說。
 
-當討論到一個完整階段(使用者沒有更多要補充,或主動要求產出),整理成 Markdown 直接輸出在對話中讓使用者存檔。
+2. **兩種未知，處理方式相反。**
+   - **A 類：問使用者就能拍板的。** 在當下的階段問到有答案為止。拍板後記進 project memory，並在索引 `MEMORY.md` 裡留一行摘要，因為 thread 啟動時只讀索引，細節檔要用到才會打開。
+   - **B 類：使用者和你都無法在對話中確認的外部事實**（真實的 API 端點、外部服務回傳的確切字串、必須實測才知道的上限值）。絕對不要編一個暫定答案。在文件裡就地標上 `🛑 執行前先驗證`，寫清楚要量什麼、怎麼量，以及**拿到真實值之後的決定規則**（例如：「量到 rate limit 後，刷新間隔取最保守來源的上限，再留 50% 餘裕」）。這類點可以單獨開一個探路 thread 先跑，結果記進 memory 之後再進 design。
 
-**版號規則(roadmap 與 plan 共用)**:第一次從 `v1` 開始。大更動(換框架、改檔案結構、新增重要模組、重排里程碑)升整數,小更動(改命名、補說明,架構不變)升小數;細節怎麼歸類交給你自己判斷,上一版資訊本來就在 context 裡。
+3. **planning 和 design thread 不寫實作 code。** design 的顆粒度停在「檔案職責 + 關鍵函式簽名 + 用途」。完整的 code 是 implementation thread 的工作。
 
----
-
-#### roadmap_v{版號}.md(整個專案的大架構)
-
-**何時**:全新、且是**有多個階段的大專案**。小到一兩個功能就做完的專案不需要 roadmap,直接跳到 plan / feature。
-
-**內容(依序)**:
-0. **基礎環境設置**——一次性的工具鏈(整個專案共用的部分)。給可直接執行的具體指令,不要寫「請建立虛擬環境」這種空話。優先採用當下最新的主流工具鏈:Python → 用 `uv`(`uv init` / `uv add <套件>` / `uv run <指令>`,不需手動建 venv);Node.js → 用 `fnm` 指定 Node 版本,套件管理預設 `pnpm install`(沒特殊理由不用 npm)。
-1. **專案概述**——一小段講清楚:做什麼、給誰用、最終要到什麼狀態。未來每輪規劃對話都從這裡冷啟動,寫到「新對話讀完不用回頭問專案是什麼」的程度。
-2. **整體架構與技術選擇**——框架 / 語言 / 資料庫 / 部署,只到「用什麼」的層級。寫拍板的決定;**主動排除的方案若是因為硬限制**(免費方案額度、rate limit、平台政策),**理由寫一行**(例:「不用 Vercel 內建 cron——Hobby 一天僅一次」),防止未來對話把它翻出來重提;其餘理由不寫。
-3. **里程碑拆解**——拆成 `M1, M2, M3…`,每個里程碑寫:**交付什麼**、**依賴哪些前面的 M**、加上已知風險與 `🛑 執行前先驗證` 的點(有才寫)。敘述完整度以「之後拿這個 M 去開 plan 對話時,不用先回頭補一輪脈絡」為準——通常三到五句,不必硬壓成一兩句。
-
-顆粒度**停在「里程碑 + 整體架構」**:不寫檔案結構、不寫函式簽名——那是 plan / feature 的事。roadmap 是骨架,不是實作藍圖。
+4. **文件和 brief 都必須能獨立看懂。** 不要寫「如前面討論的」「Q3 的決策」這類引用，因為讀者是沒看過這段對話的 thread。用祈使句寫規格：直接寫要做什麼，不解釋為什麼。唯一的例外是 roadmap 裡被排除的方案，見下方 planning 一節。
 
 ---
 
-#### plan_M{編號}.md(落實一或數個里程碑)
+## Coordinator：怎麼分派
 
-**何時**:要把 roadmap 裡的某個 / 某幾個 `M` 變成可實作的規格。
+**第一次啟用時**，先檢查 project instructions 裡有沒有下面這一行。沒有就加上，並告訴使用者加了什麼：
 
-**檔名**:依涵蓋的里程碑命名——`plan_M1.md`;一次涵蓋多個就 `plan_M2-M3.md`。這份 plan 本身有修訂時,比照版號規則加後綴(`plan_M2_v1.5.md`)。**沒有 roadmap 的小專案**,退回單純的 `plan_v{版號}.md`。
+> 本專案依 planning-mode skill 運作。coordinator 和每個 thread 開始工作前，先載入 planning-mode skill，照自己角色的那一節做。
 
-**內容(依序)**:
-- **涵蓋範圍**——這份 plan 對應 roadmap 的哪些 `M`(一行帶過,不重抄整體架構)。
-0. **環境設置(增量)**——只列這階段**新增**的依賴 / 設定,沿用 roadmap 的基礎設置、不重抄。
-1. **檔案結構**——這幾個里程碑會動到的完整目錄 / 檔案樹。
-2. **各檔案職責**——每個檔案負責什麼,列出關鍵函式簽名與用途(不寫完整 code)。
-3. **執行順序**——把檔案排成有依賴關係的任務序列(例:先 migration → 驗證能連上 → 寫入端點 → 讀取端點 → 前端),不要只丟一張靜態檔案樹讓 Claude Code 自己猜先做哪個。每步給一個可驗收的 checkpoint。
-4. **怎麼驗證跑通**——每條交付線給一個具體、可執行的驗收步驟(打哪個端點、期望回什麼、失敗長怎樣),讓使用者和 Claude Code 都能確認這步真的完成,而不是「看起來完成」。
+這一行是必要的。project instructions 會送給 coordinator 和每一個新 thread，但 skill 要被叫出來才會生效：thread 收到的 brief 不一定會觸發它，coordinator 的對話也只靠最近的訊息和 memory 運作，早先載入的 skill 內容可能已經不在 context 裡。
 
-**兩條貫穿全文件的規則**:
-- **`👤 使用者動作`**:凡是 Claude Code 自己做不了、需要使用者親手做的步驟——開帳號、上第三方 dashboard 操作、產生並提供金鑰、設定外部服務——就地標 `👤 使用者動作`,並在「涵蓋範圍」之後集中列一份清單。讓 Claude Code 知道走到這裡是「停下來請使用者做」而不是自己想辦法,也讓使用者丟文件前能先把做得掉的先做掉。
-- **checkpoint 必須在該階段當下的環境就能執行**:還沒部署就不得要求去部署環境驗證。做不到的驗證就降級成本地可執行的版本,並把「部署後才能做的檢查」明文挪到對應的里程碑。
+每收到一則訊息，先判斷它的終點是什麼：
 
-顆粒度要完整到讓 Claude Code 不用回頭問基本問題,但不含完整實作。
+- **解釋、比較、原理、快速問題** → 直接在 project 對話裡回答，不開 thread。
+- **要決定做什麼** → 開 planning thread。
+- **要把已經做好的決定轉成規格** → 開 design thread。
+- **要產出 code** → 開 implementation thread。如果還沒有 design 文件，先開 design thread，不要直接開工。
+
+整體流程：planning →（`👤` merge roadmap PR）→（🛑 探路 thread，可以平行跑）→ 每個里程碑各開一個 design →（`👤` merge design PR）→ 照 design 的任務切分開 implementation。如果是一兩個功能就做完的小專案，planning 只要把決策記進 memory，不必寫 roadmap，直接進 design。
+
+**交接前先 merge。** thread 是從預設分支開 branch 的，所以下游 thread 要讀的 repo 文件（design 要讀的 `docs/roadmap.md`、implementation 要讀的 design 文件）必須已經 merge 進預設分支，不然它讀不到。planning 和 design thread 把文件寫進 repo 時要開 PR。PR 的 review 和 merge 是 `👤` 使用者動作：PR 開好之後，告訴使用者去 review 並 merge，merge 之前不開下游 thread。
+
+開 thread 時，brief 要寫清楚以下幾點：
+- 開頭寫：「先載入 planning-mode skill，照『{角色} thread』那一節做。」
+- 這個 thread 的角色（planning / design / implementation），以及範圍（對應哪個 M 或哪個功能）
+- 要讀哪份文件（給 repo 裡的路徑）
+- 要交付什麼、放在哪裡（檔案路徑、要不要開 PR）
+- 哪些範圍不准碰
+- 遇到 A 類問題、`👤` 使用者動作，或需要推翻上游的決定時，停下來問，不要自己想辦法解決
+
+每個 thread 都是一個完整的 Claude Code session，很吃額度。planning 和 design 一次只開一個。implementation 要同時開好幾個之前，先把 thread 清單列出來，等使用者同意再開。
+
+coordinator 只看得到 thread 回報的內容，看不到它中間的每一步。所以要對照 design 文件裡的驗證步驟，確認回報中有實際跑過的結果。沒有的話就要求 thread 補上，不要直接轉述成「已完成」。
 
 ---
 
-#### feature_{描述}.md(單一功能切片)
+## Planning thread → `docs/roadmap.md`
 
-**何時**:只想做**一個功能切片**——**不一定是「新增」**:可能是把 roadmap 後面某個 `M` 的功能提前做、也可能是途中縫補的小東西。
+讀者是使用者本人，以及之後的 design 和 planning thread。
 
-**檔名**:`feature_{功能描述}.md`,用功能命名、不加編號(登入 → `feature_login.md`,搜尋 → `feature_search.md`)。
+1. **專案概述**：做什麼、給誰用、最終要做到什麼狀態。要寫到新的 thread 讀完之後，不用回頭問專案是什麼。
+2. **整體架構與技術選擇**：語言、框架、資料庫、部署方式，只寫到「用什麼」的層級。工具鏈預設 Python 用 `uv`，Node 用 `pnpm`（沒有特殊理由不用 npm）。因為**硬限制**（免費方案額度、rate limit、平台政策）而排除的方案，要寫一行理由，例如：「不用 Vercel 內建 cron，因為 Hobby 方案一天只能跑一次」。這是為了避免之後的 thread 又把它翻出來重提。其他理由不寫。
+3. **里程碑**：`M1, M2…`。每個里程碑寫清楚要交付什麼、依賴哪些前面的 M，以及已知的風險和 `🛑`。完整程度以「拿這個 M 去開 design thread 時不用先補脈絡」為準，通常三到五句。
 
-**內容**:結構與 plan 相同(功能描述、檔案結構、各檔案職責與函式簽名、執行順序、驗證步驟,含 `👤 使用者動作` 與 checkpoint 兩條貫穿規則),範圍只限這個功能,並額外標明:
-- **對應 roadmap 的哪個 `M`**(或註明「不屬於任何里程碑的臨時補丁」),讓使用者知道這塊將來會不會跟某個 plan 重疊。
-- **會動到的既有檔案清單**——列出要新增 / 修改哪些舊檔案、各自要改什麼,但**不需貼出舊 code 或既有邏輯**(Claude Code 會自己去讀現有 code)。
+roadmap 不寫檔案結構，也不寫函式簽名。拍板的決策和排除理由要同步記進 project memory。如果專案還沒有 repo，建 repo、安裝 Claude GitHub App、把 repo 加進 project 都屬於 `👤` 使用者動作。在那之前，roadmap 先交到 Library，等 repo 建好再 commit 進 `docs/`。之後要修改，就透過 PR 直接改原檔，版本紀錄交給 git，不另外加版號。
 
 ---
 
-**三者共同遵守**:
-- Level 1 準則 2:B 類外部未知就地標 `🛑` + 拿到真實值後的決定規則,不要湊假答案。
-- 「不寫理由」原則(唯 roadmap 的排除方案限制型理由例外,見 roadmap 規格)。
-- **文件必須自足**:禁止引用對話內的編號或脈絡(「Q3 的決策」「如前面討論的」)——Claude Code 和未來的對話都沒有這場對話的記憶,規則與決定要在文件裡寫全。
+## Design thread → `docs/design_M{n}.md` / `docs/feature_{描述}.md`
 
-**判斷走哪一種**:
-- 全新、多階段大專案,還沒有 roadmap → 先做 **roadmap**。
-- 要落實 roadmap 裡的一個 / 幾個里程碑 → **plan**。
-- 只做一個功能切片(把後面的提前做、或途中縫補)→ **feature**。
-- 小到不需要分階段的專案 → 跳過 roadmap,直接 `plan_v{版號}.md` 或 feature。
-- 不確定走哪種 → 直接問使用者。
+讀者是 implementation thread。它會照字面執行，遇到沒寫清楚的地方，會自己編一個看起來合理的答案填進去，而且不會告訴你。凡是文件沒寫到的，它都會用猜的。
+
+**檔名**：里程碑用 `design_M1.md`，一次涵蓋好幾個就用 `design_M2-M3.md`。單一功能切片用 `feature_{描述}.md`（例如 `feature_login.md`），並註明它對應哪個 M，或是「不屬於任何里程碑的臨時補丁」。沒有 roadmap 的小專案就用 `design.md`。
+
+**內容（依序）**：
+1. **範圍**：對應哪些 M 或哪個功能，一行帶過。
+2. **`👤` 使用者動作清單**：thread 自己做不到、需要使用者親手處理的事，例如開帳號、到第三方 dashboard 操作、產生金鑰，或是修改 thread 用的 cloud environment：加允許的網域、加 network secret、在 setup script 裡裝工具。cloud environment 要到該 environment 的 **Edit cloud environment** 對話框改；Project settings > Environment 只能選 repo 和要用哪個 environment，改不到這些。正文中對應的位置也要就地標 `👤`，讓 thread 做到那一步時知道要停下來等。
+3. **環境**：`design_M1.md`（或沒有 roadmap 的 `design.md`）寫完整的基礎環境：工具鏈、依賴、初始化指令。之後的 design 和 feature 只列這個階段新增的依賴和指令。build 和 test 指令寫進 repo 根目錄的 `CLAUDE.md`，因為每個 thread 啟動時都會讀。
+4. **檔案結構**：會動到的目錄和檔案樹。feature 另外列出要修改的既有檔案，以及各自要改什麼（不用貼舊 code，thread 會自己去讀）。
+5. **各檔案職責**：列出關鍵函式簽名和用途，不寫 function body。
+6. **任務切分**：把工作切成一個 implementation thread 做得完的大小，寫清楚依賴順序、哪些可以平行、每個任務負責哪些檔案、merge 的順序。兩個平行的任務不能改到同一個檔案，否則 PR 會衝突。每個任務附一個 checkpoint。
+7. **驗證**：每一條交付線都給一個具體、可以執行的驗收步驟（打哪個端點、期望回什麼、失敗時長什麼樣子）。checkpoint 必須在 cloud sandbox 當下就能跑：還沒部署，就不能要求到部署環境驗證。做不到的話，就降級成在本地能跑的版本，並把「部署後才能做的檢查」明確移到對應的里程碑。
+
+如果 design thread 發現 planning 的某個決定行不通，就停下來回報，不要自己改架構。
+
+---
+
+## Implementation thread
+
+只做 design 文件分給你的任務，只改這個任務負責的檔案。遇到 `🛑`，先跑探路腳本拿到真實值，再照文件裡的決定規則往下做。遇到 `👤`，或是 design 沒寫到的地方，就停下來問。完成前要跑過對應的驗證步驟，並把結果貼在最後一則訊息裡。
